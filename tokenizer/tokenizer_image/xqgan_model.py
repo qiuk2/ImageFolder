@@ -63,6 +63,10 @@ class ModelArgs:
     guide_type_2: str = "class"
 
     lfq: bool = False
+
+    p_range: int = None
+    p_ratio: float = None
+
     scale: float = 1.0
     soft_entropy: bool = True
 
@@ -145,7 +149,10 @@ class VQModel(nn.Module):
             self.post_quant_conv = nn.Conv2d(config.codebook_embed_dim * self.product_quant, self.decoder.embed_dim, 1)
         else:
             if len(config.v_patch_nums) == 1:
-                self.quantize = VectorQuantizer(config.codebook_size, config.codebook_embed_dim, config.commit_loss_beta, config.codebook_l2_norm)
+                self.quantize = VectorQuantizer(config.codebook_size, config.codebook_embed_dim, 
+                                                config.commit_loss_beta, config.codebook_l2_norm,
+                                                config.p_range, config.p_ratio
+                                                )
             elif not config.lfq:
                 self.quantize = VectorQuantizer2(config.codebook_size, config.codebook_embed_dim,
                                                  v_patch_nums=config.v_patch_nums,
@@ -716,13 +723,16 @@ def compute_entropy_loss(affinity, loss_type="softmax", temperature=0.01):
 
 class VectorQuantizer(nn.Module):
 
-    def __init__(self, vocab_size=8192, z_channels=32, beta=0.25, codebook_norm=True):
+    def __init__(self, vocab_size=8192, z_channels=32, beta=0.25, codebook_norm=True, p_range=None, p_ratio=0.0):
         super().__init__()
         # parameters
         self.vocab_size = vocab_size
         self.z_channels = z_channels
         self.beta = beta
         self.codebook_norm = codebook_norm
+
+        self.p_range = p_range
+        self.p_ratio = p_ratio
         # self.restart_unused_codes = restart_unused_codes
 
         # embedding layer
@@ -758,8 +768,14 @@ class VectorQuantizer(nn.Module):
             torch.einsum('bd,dn->bn', z_flattened, torch.einsum('n d -> d n', embedding))
 
         # argmin find indices and embeddings
-        min_encoding_indices = torch.argmin(d, dim=1)
-        
+        if self.p_range == None:
+            min_encoding_indices = torch.argmin(d, dim=1)
+        else:
+            _, min_encoding_indices = torch.topk(d, self.p_range, dim=1, largest=False)
+            random_prob = torch.rand(min_encoding_indices.shape[0], device=d.device)
+            random_idx = torch.randint(0, self.p_range, random_prob.shape, device=d.device)
+            random_idx = torch.where(random_prob > self.p_ratio, 0, random_idx)
+            min_encoding_indices = min_encoding_indices[torch.arange(min_encoding_indices.size(0)), random_idx]
         
         z_q = self.embedding(min_encoding_indices).view(z.shape)
         if self.codebook_norm:

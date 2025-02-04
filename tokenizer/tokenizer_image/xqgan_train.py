@@ -145,6 +145,8 @@ def parse_args():
     parser.add_argument("--guide_type_1", type=str, default='class', choices=["patch", "class"])
     parser.add_argument("--guide_type_2", type=str, default='class', choices=["patch", "class"])
     parser.add_argument("--lfq", action='store_true', default=False, help="if use LFQ")
+    parser.add_argument("--p-range", type=int, default=None)
+    parser.add_argument("--p-ratio", type=float, default=0.0)
 
     args = parser.parse_args()
     if args.config is not None:
@@ -291,7 +293,9 @@ def main(args):
         detail_loss_scale=args.detail_loss_scale,
         guide_type_1=args.guide_type_1,
         guide_type_2=args.guide_type_2,
-        lfq=args.lfq
+        lfq=args.lfq,
+        p_range=args.p_range,
+        p_ratio=args.p_ratio
     )
     logger.info(f"VQ Model Parameters: {sum(p.numel() for p in vq_model.parameters()):,}")
     if args.ema:
